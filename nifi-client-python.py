@@ -55,39 +55,45 @@ def getToken( url ):
 
 
 def execRequest( url, token, type = "GET", data = None):
+        auth = ""
+        if( token != None ):
+                auth = " -H 'Authorization: Bearer " + token + "'"
+                print "toto"
 	if( type == "GET" ):
-		curl = "curl -k " + url + " -H 'Authorization: Bearer " + token + "'"
-		
+		curl = "curl -vk " + url + auth
+
 	elif( type == "POST" ):
 		if( data is None):
-			curl = "curl -k -X POST " + url + " -H 'Accept: application/json' -H 'Authorization: Bearer " + token + "'"
+			curl = "curl -vk -X POST " + url + " -H 'Accept: application/json'" + auth
 		else:
-			curl = "curl -k -X POST " + url + " -H 'Content-Type: application/json' -H 'Accept: application/json' -H 'Authorization: Bearer " + token + "' --data '" + data + "'"
-	
+			curl = "curl -vk -X POST " + url + " -H 'Content-Type: application/json' -H 'Accept: application/json'" + auth  + "' --data '" + data + "'"
+
 	elif( type == "PUT" ):
 		if( data is None):
-			curl = "curl -k -X PUT " + url + " -H 'Accept: application/json' -H 'Authorization: Bearer " + token + "'"
+			curl = "curl -vk -X PUT " + url + " -H 'Accept: application/json'" + auth
 		else:
-			curl = "curl -k -X PUT " + url + " -H 'Content-Type: application/json' -H 'Accept: application/json' -H 'Authorization: Bearer " + token + "' --data '" + data + "'"
-	
+			curl = "curl -vk -X PUT " + url + " -H 'Content-Type: application/json' -H 'Accept: application/json'" + auth + " --data '" + data + "'"
+
 	elif( type == "DELETE" ):
 		if( data is None):
-			curl = "curl -k -X DELETE " + url + " -H 'Accept: application/json' -H 'Authorization: Bearer " + token + "'"
+			curl = "curl -vk -X DELETE " + url + " -H 'Accept: application/json'" + auth
 		else:
-			curl = "curl -k -X DELETE " + url + " -H 'Content-Type: application/json' -H 'Accept: application/json' -H 'Authorization: Bearer " + token + "' --data '" + data + "'"
-	
+			curl = "curl -vk -X DELETE " + url + " -H 'Content-Type: application/json' -H 'Accept: application/json'" + auth  + "' --data '" + data + "'"
+
 	else:
 		print "Type " + type + " not supported"
-	
+
 	if( debug ):
 		curl = curl + " -v"
 		print "CURL---------------------------"
 		print curl
 		print "CURL---------------------------"
-	
+        print "curl : " + curl
 	p = subprocess.Popen(curl, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 	out, err = p.communicate()
-	
+
+	print "out : " + out
+        print "err : " + err
 	if( debug ):
 		print "OUT---------------------------"
 		print out
@@ -95,11 +101,11 @@ def execRequest( url, token, type = "GET", data = None):
 		print "ERR---------------------------"
 		print err
 		print "ERR---------------------------"
-	
+
 	if p.returncode == 0:
 		return out
 	else:
-		print "Failed to request " + url
+		print "Failed to request " + url + "; method=" + type
 		print err
 		print out
 		return None
@@ -120,11 +126,11 @@ def listIds( url, token, component, parent = None, isRecursive = False ):
 		endpoint = _endpoint_pg_root
 	else:
 		endpoint = _endpoint_pg_id + parent
-	
+
 	response = execRequest(url + endpoint, token, "GET")
 	jData = json.loads(response)
 	ids = getIds(jData, component)
-	
+
 	if( isRecursive ):
 		pgIds = getIds(jData, "processGroups")
 		for id in pgIds:
@@ -139,7 +145,7 @@ def getProcessorFromConnection( url, token, connectionId, position):
 	endpoint = _endpoint_connection_id + connectionId
 	response = execRequest(url + endpoint, token, "GET")
 	jData = json.loads(response)
-	
+
 	if( position == "source" ):
 		if ( jData['sourceType'] == "PROCESSOR" ):
 			return jData['sourceId']
@@ -152,7 +158,7 @@ def getProcessorFromConnection( url, token, connectionId, position):
 def listInputProcessorId( url, token, parent = None, isRecursive = False ):
 	connectionsId = listConnectionsId(url, token, parent, isRecursive)
 	processorsId = listProcessorsId(url, token, parent, isRecursive)
-	
+
 	for connection in connectionsId:
 		destinationId = getProcessorFromConnection( url, token, connection, "destination" )
 		if(destinationId in processorsId):
@@ -171,17 +177,17 @@ def listConnectionsId( url, token, parent = None, isRecursive = False ):
 
 
 
-def updateProcessor( url, token, processorId, action ):
-	endpoint = _endpoint_processor_id + processorId
-	response = execRequest(url + endpoint, token, "PUT", json.dumps({"revision":getProcessorRevision(url, token, processorId), "component":{"id":processorId, "state":action}}))
+def updateProcessor( url, token, processorId, action, disconnectedNodeAcknowledged = "false" ):
+	endpoint = _endpoint_processor_id + processorId + "/run-status"
+        response = execRequest(url + endpoint, token, "PUT", json.dumps({"revision":getProcessorRevision(url, token, processorId), "state": action, "disconnectedNodeAcknowledged": disconnectedNodeAcknowledged}))
 	print "Updated processor " + processorId + " to " + action
 
 
 
-def updateInputProcessors( url, token, action, parent = None, isRecursive = False ):
+def updateInputProcessors( url, token, action, parent = None, isRecursive = False, disconnectedNodeAcknowledged = "false" ):
 	processorsId = listInputProcessorId(url, token, parent, isRecursive)
 	for processor in processorsId:
-		updateProcessor(url, token, processor, action)
+		updateProcessor(url, token, processor, action, disconnectedNodeAcknowledged)
 
 
 
@@ -228,14 +234,14 @@ def getNiFiStatus( url, token ):
 		if( isBackpressureEnabled(url, token, connectionId) ):
 			print "WARNING: back pressure is enabled on connection " + connectionId
 			warning = True
-			
+
 	# check if there are bulletins
 	jData = getBulletinsBoard(url, token)
 	nbBulletins = len(jData['bulletinBoard']['bulletins'])
 	if( nbBulletins != 0 ):
 		warning = True
 		print "WARNING: there are bulletins, use 'bulletins' command to display bulletins"
-	
+
 	if( warning ):
 		print "NiFi is NOK"
 	else:
@@ -302,27 +308,37 @@ def getQueuedFlowFiles( url, token ):
 
 
 
-def decommission( url, token, nodeAddress ):
+def decommission( url, token, nodeAddress, nodePort):
+	node = ""
+        port = ""
+        tokenNode = None
 	# check that url is not using the node we want to disconnect
 	if ( nodeAddress in url ):
 		print "Please do not use the node to disconnect in the URL"
 		return
-	
+
 	# disconnecting node to decommission
 	disconnect(url, token, nodeAddress)
-	
+
 	# get API URL of the node we disconnected
 	nodeUrl = re.search('.*://(.*):.*', url)
+        portUrl = re.search('.*://.*:(.*)/.*', url)
+
 	if ( nodeUrl ):
 		node = nodeUrl.group(1)
+        if ( portUrl):
+                port = portUrl.group(1)
+
+	print "nodeUrl : " + node + " > " + nodeAddress
+        print "port : " + port
 	urlNode = url.replace(node, nodeAddress)
-	
+        urlNode = urlNode.replace(port, nodePort)
 	# get token on node to disconnect
-	tokenNode = getToken(urlNode)
-	
+	if( urlNode.startswith('https') ):
+            tokenNode = getToken(url)
 	# stop input processors
-	updateInputProcessors(urlNode, tokenNode, "STOPPED", None, True)
-	
+	updateInputProcessors(urlNode, tokenNode, "STOPPED", None, True, disconnectedNodeAcknowledged = "true")
+
 	# wait until not more queued flow file
 	currentNb = getQueuedFlowFiles(urlNode, tokenNode)
 	previousNb = 0
@@ -374,14 +390,15 @@ requiredNamed.add_argument('--action', choices=possibleActions, help='Action to 
 
 nodeArgs = parser.add_argument_group('Arguments for node related actions')
 nodeArgs.add_argument('--node', help='Node address to use for the action', required=False)
-
+nodeArgs.add_argument('--nodePort', help='Node address to use for the action', required=False)
 args = parser.parse_args()
-
+token=None
 url = args.url
 action = args.action
 login = args.login
 password = args.password
 node = args.node
+nodePort = args.nodePort
 debug = args.debug
 
 if( url.startswith('https') ):
@@ -410,30 +427,8 @@ elif( action == "disconnect" ):
 elif( action == "connect" ):
 	connect(url, token, node)
 elif( action == "decommission" ):
-	decommission(url, token, node)
+	decommission(url, token, node, nodePort)
 elif( action == "remove" ):
 	removeNode(url, token, node)
 else:
 	print "ERROR, unknown action " + action
-	
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
